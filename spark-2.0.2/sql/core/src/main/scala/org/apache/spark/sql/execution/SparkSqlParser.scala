@@ -1003,8 +1003,11 @@ class SparkSqlAstBuilder(conf: SQLConf) extends AstBuilder {
       .getOrElse(CatalogStorageFormat.empty)
     val location = Option(ctx.locationSpec).map(visitLocationSpec)
     // If we are creating an EXTERNAL table, then the LOCATION field is required
-    if (external && location.isEmpty) {
-      operationNotAllowed("CREATE EXTERNAL TABLE must be accompanied by LOCATION", ctx)
+    if(external){
+      if(Option(fileStorage).isEmpty && location.isEmpty) operationNotAllowed("CREATE EXTERNAL TABLE must be accompanied by LOCATION", ctx)
+      if(Option(fileStorage).nonEmpty && !fileStorage.serde.get.equalsIgnoreCase("org.apache.hadoop.hive.hbase.HBaseSerDe") && location.isEmpty){
+        operationNotAllowed("CREATE EXTERNAL TABLE must be accompanied by LOCATION", ctx)
+      }
     }
     val storage = CatalogStorageFormat(
       locationUri = location,

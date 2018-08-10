@@ -24,9 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.HTable;
@@ -38,6 +36,9 @@ import org.apache.hadoop.hbase.mapreduce.TableInputFormatBase;
 import org.apache.hadoop.hbase.mapreduce.TableSplit;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hive.hbase.ColumnMappings.ColumnMapping;
+import org.apache.hadoop.hive.hbase.phoenix.HbaseTableUtil;
+import org.apache.hadoop.hive.hbase.phoenix.PhoenixHbaseDataTypeHandle;
+import org.apache.hadoop.hive.hbase.phoenix.model.Table;
 import org.apache.hadoop.hive.ql.exec.ExprNodeConstantEvaluator;
 import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
 import org.apache.hadoop.hive.ql.index.IndexPredicateAnalyzer;
@@ -171,14 +172,53 @@ public class HiveHBaseTableInputFormat extends TableInputFormatBase
           next = recordReader.nextKeyValue();
 
           if (next) {
-            rowKey.set(recordReader.getCurrentValue().getRow());
-            value.setResult(recordReader.getCurrentValue());
+            Result result  = recordReader.getCurrentValue();
+            //判断hbase记录是否是phoenix数据
+            if (isPhoenixHbaseTable()){
+              setPhoenixHbaseData(rowKey,value);
+            }
+            else{
+              rowKey.set(recordReader.getCurrentValue().getRow());
+              value.setResult(result);
+            }
           }
         } catch (InterruptedException e) {
           throw new IOException(e);
         }
 
         return next;
+      }
+
+      private boolean isPhoenixHbaseTable(){
+        String tableType = jobConf.get("hbase.table.type");
+        return tableType != null && tableType.equalsIgnoreCase("phoenix");
+      }
+
+      private void setPhoenixHbaseData(ImmutableBytesWritable rowKey, ResultWritable value) throws IOException, InterruptedException {
+        //设置phoenix的数据类型
+        String schma = jobConf.get("serialization.ddl");
+        String mapping = jobConf.get("hbase.columns.mapping");
+        Table table = HbaseTableUtil.getTable(schma,mapping);
+        byte[] row = recordReader.getCurrentValue().getRow();
+        byte[] tmpRow = PhoenixHbaseDataTypeHandle.toHbaseByteRwoKey(row,table.getRowKeyColumn().getDataType());
+        if (null == tmpRow){
+          rowKey.set(row);
+        }
+        else{
+          rowKey.set(tmpRow);
+        }
+        Result result = recordReader.getCurrentValue();
+        List<Cell> cellList = new ArrayList<Cell>();
+        for (Cell cell : result.rawCells()) {
+          byte[] family_1 = CellUtil.cloneFamily(cell);
+          byte[] column_1 = CellUtil.cloneQualifier(cell);
+          //转换phoenix数据类型
+          byte[] value_1 =PhoenixHbaseDataTypeHandle.toHbaseByte(CellUtil.cloneValue(cell),table.getColumn(Bytes.toString(column_1)).getDataType());
+          Cell cell_1 = CellUtil.createCell(rowKey.get(),family_1,column_1,System.currentTimeMillis(), cell.getTypeByte(),value_1);
+          cellList.add(cell_1);
+        }
+        Result resultTmp = Result.create(cellList);
+        value.setResult(resultTmp);
       }
     };
   }

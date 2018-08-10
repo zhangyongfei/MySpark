@@ -46,6 +46,8 @@ import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.execution.QueryExecutionException
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.util.{CircularBuffer, Utils}
+import org.apache.hadoop.fs.FsUrlStreamHandlerFactory
+import java.net.URL
 
 /**
  * A class that wraps the HiveClient and converts its responses to externally visible classes.
@@ -698,6 +700,8 @@ private[hive] class HiveClientImpl(
 
   def addJar(path: String): Unit = {
     val uri = new Path(path).toUri
+    //add hdfs://
+    URL.setURLStreamHandlerFactory(new FsUrlStreamHandlerFactory)
     val jarURL = if (uri.getScheme == null) {
       // `path` is a local file path without a URL scheme
       new File(path).toURI.toURL
@@ -798,7 +802,7 @@ private[hive] class HiveClientImpl(
       val input : String = null
       hiveTable.setInputFormatClass(input)
     }
-    
+
     if(table.storage.inputFormat != None &&
         !table.storage.inputFormat.get.isEmpty()) {
         table.storage.outputFormat.map(toOutputFormat).foreach(hiveTable.setOutputFormatClass)
@@ -806,7 +810,7 @@ private[hive] class HiveClientImpl(
       val output : String = null
       hiveTable.setOutputFormatClass(output)
     }
-    
+
     hiveTable.setSerializationLib(
       table.storage.serde.getOrElse("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe"))
     table.storage.serdeProperties.foreach { case (k, v) => hiveTable.setSerdeParam(k, v) }
